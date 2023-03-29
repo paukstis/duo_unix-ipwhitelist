@@ -53,6 +53,7 @@ duo_common_ini_handler(struct duo_config *cfg, const char *section,
 {
     char *buf, *currWord, *nextWord, *tmpString;
     int int_val, new_length;
+    char *p;
 
     if (strcmp(name, "ikey") == 0) {
         cfg->ikey = strdup(val);
