@@ -16,6 +16,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <ctype.h>
 
 #include "util.h"
 #include "groupaccess.h"
@@ -30,6 +31,9 @@ duo_config_default(struct duo_config *cfg)
     cfg->prompts = MAX_PROMPTS;
     cfg->local_ip_fallback = 0;
     cfg->https_timeout = -1;
+    cfg->fips_mode = 0;
+    cfg->gecos_username_pos = -1;
+    cfg->gecos_delim = ',';
 }
 
 int
@@ -47,8 +51,8 @@ int
 duo_common_ini_handler(struct duo_config *cfg, const char *section,
     const char *name, const char*val)
 {
-    char *buf, *p;
-    int int_val;
+    char *buf, *currWord, *nextWord, *tmpString;
+    int int_val, new_length;
 
     if (strcmp(name, "ikey") == 0) {
         cfg->ikey = strdup(val);
@@ -65,7 +69,7 @@ duo_common_ini_handler(struct duo_config *cfg, const char *section,
             fprintf(stderr, "Out of memory parsing groups\n");
             return (0);
         }
-        for (p = strtok(buf, " "); p != NULL; p = strtok(NULL, " ")) {
+        for (currWord = strtok(buf, " "); currWord != NULL; currWord = strtok(NULL, " ")) {
             if (cfg->groups_cnt >= MAX_GROUPS) {
                 fprintf(stderr, "Exceeded max %d groups\n",
                     MAX_GROUPS);
@@ -73,7 +77,17 @@ duo_common_ini_handler(struct duo_config *cfg, const char *section,
                 free(buf);
                 return (0);
             }
-            cfg->groups[cfg->groups_cnt++] = p;
+            /* Concatenate next word if current word ends with "\ " */
+            while (currWord[strlen(currWord) - 1] == '\\') {
+                currWord[strlen(currWord) - 1] = ' ';
+                nextWord = strtok(NULL, " ");
+                new_length = strlen(currWord) + strlen(nextWord) + 1;
+                tmpString = (char *) malloc(new_length);
+                strlcpy(tmpString, currWord, new_length);
+                strncat(tmpString, nextWord, new_length);
+                currWord = tmpString;
+            }
+            cfg->groups[cfg->groups_cnt++] = currWord;
         }
     } else if (strcmp(name, "failmode") == 0) {
         if (strcmp(val, "secure") == 0) {
@@ -93,7 +107,8 @@ duo_common_ini_handler(struct duo_config *cfg, const char *section,
         /* Clamp the value into acceptable range */
         if (int_val <= 0) {
             int_val = 1;
-        } else if (int_val < cfg->prompts) {
+        } 
+        if (int_val < cfg->prompts) {
             cfg->prompts = int_val;
         }
     } else if (strcmp(name, "autopush") == 0) {
@@ -128,7 +143,32 @@ duo_common_ini_handler(struct duo_config *cfg, const char *section,
     } else if (strcmp(name, "send_gecos") == 0) {
         cfg->send_gecos = duo_set_boolean_option(val);
     } else if (strcmp(name, "gecos_parsed") == 0) {
-        cfg->gecos_parsed = duo_set_boolean_option(val);
+        duo_log(LOG_ERR, "The gecos_parsed configuration item for Duo Unix is deprecated and no longer has any effect. Use gecos_delim and gecos_username_pos instead", NULL, NULL, NULL);
+    } else if (strcmp(name, "gecos_delim") == 0) {
+        if (strlen(val) != 1) {
+            fprintf(stderr, "Invalid character option length. Character fields must be 1 character long: '%s'\n", val);
+            return (0);
+        }
+
+        char delim = val[0];
+        if (!ispunct(delim) || delim == ':') {
+            fprintf(stderr, "Invalid gecos_delim '%c' (delimiter must be punctuation other than ':')\n", delim);
+            return (0);
+        }
+        cfg->gecos_delim = delim;
+    } else if (strcmp(name, "gecos_username_pos") == 0) {
+        int gecos_username_pos = atoi(val);
+        if (gecos_username_pos < 1) {
+            fprintf(stderr, "Gecos position starts at 1\n");
+            return (0);
+        }
+        else {
+            // Offset the position so user facing first position is 1
+            cfg->gecos_username_pos = gecos_username_pos - 1;
+        }
+    } else if (strcmp(name, "dev_fips_mode") == 0) {
+        /* This flag is for development */
+        cfg->fips_mode = duo_set_boolean_option(val);
     } else {
         /* Couldn't handle the option, maybe it's target specific? */
         return (0);

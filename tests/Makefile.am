@@ -1,10 +1,7 @@
+TESTS_ENVIRONMENT = env BUILDDIR=$(abs_top_builddir) $(PYTHON)
 
-TESTS_ENVIRONMENT = env BUILDDIR=$(abs_top_builddir) $(PYTHON) $(top_srcdir)/tests/cram.py 
-
-# Preserve ordering; login_duo-0.t does some setup
-TESTS = login_duo-0.t login_duo-1.t login_duo-2.t login_duo-3.t login_duo-4.t login_duo-5.t
-TESTS += groups-0.t mocklogin_duo-0.t util-0.t
-PAM_TESTS = pam_duo-0.t pam_duo-1.t pam_duo-2.t pam_duo-3.t pam_duo-4.t
+TESTS = test_login_duo.py test_crypto.py test_duo_split_at.py
+PAM_TESTS = test_pam_duo.py
 
 check_LTLIBRARIES = libgroups_preload.la
 libgroups_preload_la_SOURCES = groups_preload.c
@@ -25,4 +22,4 @@ check_PROGRAMS = testpam
 testpam_LDADD = -lpam
 endif
 
-EXTRA_DIST = bson/codec.py bson/__init__.py certs confs cram.py groups.py login_duo.py mockduo.py mocklogin_duo.py paths.py pexpect.py testpam.py $(TESTS) $(PAM_TESTS)
+EXTRA_DIST = certs confs cram.py fips_scanner.sh is_fips_supported.sh groups.py login_duo.py mockduo.py mocklogin_duo.py paths.py pexpect.py testpam.py $(TESTS) $(PAM_TESTS) common_suites.py mockduo_context.py config.py

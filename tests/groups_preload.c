@@ -10,6 +10,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <dlfcn.h>
+
+FILE *(*_fopen)(const char* filename, const char* mode);
 
 static struct passwd _passwd[6] = {
         { "user1", "*", 1000, 1000, .pw_gecos = "gecos", .pw_dir = "/",
@@ -29,10 +32,16 @@ static struct passwd _passwd[6] = {
 /* Supplemental groups */
 static char *_gr_users[] = { "user1", "admin1", NULL };
 static char *_gr_admin[] = { "admin2", NULL };
+static char *_gr_spaces[] = { "user2", NULL };
+static char *_gr_no_spaces[] = { "weirdo", NULL };
+static char *_gr_more_spaces[] = { "admin1", NULL };
 
-static struct group _groups[2] = {
+static struct group _groups[5] = {
         { "users", NULL, 100, _gr_users },
         { "admin", NULL, 10, _gr_admin },
+        { "users with spaces", NULL, 200, _gr_spaces },
+        { "no_spaces\\here", NULL, 201, _gr_no_spaces },
+        { "more spaces", NULL, 202, _gr_more_spaces },
 };
 
 static int _group_ptr = 0;
@@ -96,6 +105,20 @@ getgrent(void)
                 return (NULL);
         }
         return (&_groups[_group_ptr++]);
+}
+
+FILE *
+fopen(const char *filename, const char *mode)
+{
+    if (strcmp(filename, "/etc/motd") == 0) {
+        char *m = getenv("MOTD_FILE");
+        if(m) {
+            _fopen = dlsym(RTLD_NEXT, "fopen");
+            return (*_fopen)(m, mode);
+        }
+    }
+    _fopen = dlsym(RTLD_NEXT, "fopen");
+    return (*_fopen)(filename, mode);
 }
 
 int

@@ -1,56 +1,59 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
-import pexpect
+import sys
 
 import paths
+import pexpect
 
-PROMPT = '.* or option \(1-4\): $'
+PROMPT = ".* or option \(1-4\): $"
 
-def _login_duo():
-    p = pexpect.spawn(paths.login_duo + ' -d -c confs/mockduo.conf ' + \
-                      '-f foobar echo SUCCESS')
-    p.expect(PROMPT, timeout=2)
-    print '===> %r' % p.match.group(0)
+
+def _login_duo(confs):
+    p = pexpect.spawn(paths.login_duo + " -d -c" + confs + " -f foobar echo SUCCESS")
+    p.expect(PROMPT, timeout=10)
+    print "===> %r" % p.match.group(0)
     return p
 
+
 def main():
-    p = _login_duo()
+    confs = sys.argv[1]
+    p = _login_duo(confs)
 
     # 3 failures in a row
-    p.sendline('123456')
+    p.sendline("123456")
     p.expect(PROMPT)
-    print '===> %r' % p.match.group(0)
-    
-    p.sendline('wefawefgoiagj3rj')
+    print "===> %r" % p.match.group(0)
+
+    p.sendline("wefawefgoiagj3rj")
     p.expect(PROMPT)
-    print '===> %r' % p.match.group(0)
-    
-    p.sendline('A' * 500)
+    print "===> %r" % p.match.group(0)
+
+    p.sendline("A" * 500)
     p.expect(pexpect.EOF)
-    print '===> %r' % p.before
+    print "===> %r" % p.before
 
     # menu options
-    p = _login_duo()
+    p = _login_duo(confs)
 
-    p.sendline('3')
+    p.sendline("3")
     p.expect(PROMPT)
-    print '===> %r' % p.match.group(0)
-    
-    p.sendline('4')
+    print "===> %r" % p.match.group(0)
+
+    p.sendline("4")
     p.expect(PROMPT)
-    print '===> %r' % p.match.group(0)
+    print "===> %r" % p.match.group(0)
 
-    p.sendline('1')
+    p.sendline("1")
     p.expect(pexpect.EOF)
-    print '===> %r' % p.before
-    
-    p = _login_duo()
-    
-    p.sendline('2')
-    p.expect(pexpect.EOF)
-    print '===> %r' % p.before
+    print "===> %r" % p.before
 
-if __name__ == '__main__':
+    p = _login_duo(confs)
+
+    p.sendline("2")
+    p.expect(pexpect.EOF)
+    print "===> %r" % p.before
+
+
+if __name__ == "__main__":
     main()
-

@@ -32,6 +32,7 @@ struct duo_config {
     char *groups[MAX_GROUPS];
     char *ip_whitelist[MAX_IP_WHITELIST];
     int  ip_whitelist_cnt;
+    char gecos_delim;
     int  groups_cnt;
     int  groups_mode;
     int  failmode;  /* Duo failure handling: DUO_FAIL_* */
@@ -44,7 +45,8 @@ struct duo_config {
     int  local_ip_fallback;
     int  https_timeout;
     int  send_gecos;
-    int  gecos_parsed;
+    int  fips_mode;
+    int  gecos_username_pos;
 };
 
 void duo_config_default(struct duo_config *cfg);

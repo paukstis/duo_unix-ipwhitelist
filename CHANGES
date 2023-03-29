@@ -1,3 +1,66 @@
+duo_unix-1.12.1:
+- Updated Unity to 2.5.2
+- Added support for Fedora 34
+- Removed support for Centos 8
+- Added support for Centos Stream 8
+- Added support for Centos Stream 9
+- Added support for Ubuntu 22.04
+
+duo_unix-1.12.0:
+- Switched from BSON to JSON as a data interchange format
+- Switched from Cram to python `unittest` for testing
+
+duo_unix-1.11.5:
+- Added support for Debian 11
+- Removed support for Debian 8
+- Removed support for CentOS 6
+- Fixed MOTD display for non-interactive sessions
+- The support tool now also collects the sudo PAM configuration file
+- Updated pinned certificates
+
+duo_unix-1.11.4:
+- Added support for Ubuntu 20.04
+- Added support tool to collect information (e.g. logs and PAM stacks) for debugging purposes
+
+duo_unix-1.11.3:
+- Added support for RedHat 8, CentOS 8, and Debian 10
+- Improved validation of BSON messages
+
+duo_unix-1.11.2:
+- Added recommended Kerberos configuration for Duo Unix to our documentation, found at https://help.duo.com/s/article/5085. Thanks to Neal Poole at Facebook for bringing expertise and attention to this topic.
+- Updated SELinux policy to allow local logins to use the pam_duo PAM module and made sshd configurable
+- Added support for spaces in group names when escaped with backslashes in pam_duo.conf and login_duo.conf
+- Test infrastructure updates
+
+duo_unix-1.11.1:
+- Fixed bug causing console login to fail on certain systems
+
+duo_unix-1.11.0:
+
+- Added support for GECOS field parsing based on user-supplied delimiter
+- Updated README to include development/testing steps
+- Minor test infrastructure updates
+
+duo_unix-1.10.5:
+
+- Fixed an accidental null pointer free on systems where getaddrinfo() is unsuccessful
+
+duo_unix-1.10.4:
+
+- Removed failmode decision from auth endpoint and moved it to only preauth according to standards in our other integrations
+- Updated Duo Unix to speak up to TLS 1.2
+- Support for LibreSSL 2.7.0 and up
+- Minor memory leak fixes
+- Output message when user is locked out
+
+duo_unix-1.10.3:
+
+- Added support for http_proxy with SELinux enabled
+
+duo_unix-1.10.2:
+
+- Added default failmode values in config files
+
 duo_unix-1.10.1:
 
 - Fixed bug causing automated tests to fail on OSX
@@ -112,7 +175,7 @@ duo_unix-1.9.3:
 
 - Autopush is more user friendly
 
-- Add prompts option to the config file 
+- Add prompts option to the config file
 
 - Various build and test fixups
 

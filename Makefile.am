@@ -1,15 +1,16 @@
 
 ACLOCAL_AMFLAGS = -I autotools
 
-SUBDIRS = compat lib login_duo
+SUBDIRS = compat lib login_duo duo_unix_support
 
 if PAM
 SUBDIRS += pam_duo
 endif
 
 SUBDIRS += tests
+SUBDIRS += tests/unity_tests
 
-dist_doc_DATA = README AUTHORS CHANGES LICENSE
+dist_doc_DATA = README.md CONTRIBUTING.md AUTHORS CHANGES LICENSE
 
 # XXX - get around our default non-prefix-preserving paths for distcheck
 DISTCHECK_CONFIGURE_FLAGS = --sysconfdir='$${prefix}/etc/duo'

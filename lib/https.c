@@ -351,9 +351,9 @@ _establish_connection(struct https_request * const req,
 
 /* Provide implementations for HMAC_CTX_new and HMAC_CTX_free when
  * building for OpenSSL versions older than 1.1.0
- * or any version of LibreSSL.
+ * or LibreSSL versions older than 2.7.0
  */
-#if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER)
+#if OPENSSL_VERSION_NUMBER < 0x10100000L || defined(LIBRESSL_VERSION_NUMBER) && LIBRESSL_VERSION_NUMBER < 0x2070000fL
 static HMAC_CTX *
 HMAC_CTX_new(void)
 {
@@ -403,10 +403,13 @@ https_init(const char *cafile, const char *http_proxy)
             return (HTTPS_ERR_LIB);
         }
     }
-    if ((ctx.ssl_ctx = SSL_CTX_new(TLSv1_client_method())) == NULL) {
+    if ((ctx.ssl_ctx = SSL_CTX_new(SSLv23_client_method())) == NULL) {
         ctx.errstr = _SSL_strerror();
         return (HTTPS_ERR_LIB);
     }
+    /* Blacklist SSLv23 */
+    const long blacklist = SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3;
+    SSL_CTX_set_options(ctx.ssl_ctx, blacklist);
     /* Set up our CA cert */
     if (cafile == NULL) {
         /* Load default CA cert from memory */
@@ -711,9 +714,11 @@ https_send(struct https_request *req, const char *method, const char *uri,
     while (BIO_flush(req->cbio) != 1) {
         if ((n = _BIO_wait(req->cbio, -1)) != 1) {
             ctx.errstr = n ? _SSL_strerror() : "Write timed out";
+            free(qs);
             return (HTTPS_ERR_SERVER);
         }
     }
+    free(qs);
     return (HTTPS_OK);
 }
 

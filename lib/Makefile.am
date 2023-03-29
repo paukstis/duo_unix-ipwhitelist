@@ -2,15 +2,15 @@ AM_CPPFLAGS = -I$(top_srcdir)/compat @OPENSSL_INCLUDES@
 
 noinst_LTLIBRARIES = libduo.la
 
-libduo_la_SOURCES = bson.h bson.c cacert.h duo.c \
+libduo_la_SOURCES = cacert.h duo.c \
 		    http_parser.h http_parser.c https.h https.c ini.h ini.c \
-		    urlenc.h urlenc.c util.c
+		    urlenc.h urlenc.c util.c parson.h parson.c
 libduo_la_LIBADD = @OPENSSL_LDFLAGS@ @OPENSSL_LIBS@
 # http://sourceware.org/autobook/autobook/autobook_91.html
 libduo_la_LDFLAGS = -no-undefined -version-info 3:0:0 -export-symbols-regex '^duo_'
 
 libduo_la_includedir = $(includedir)
-libduo_la_include_HEADERS = duo.h util.h shell.h
+libduo_la_include_HEADERS = duo.h duo_private.h util.h shell.h
 
 notrans_dist_man3_MANS = duo.3
 
