@@ -1,26 +1,11 @@
 /*
   urlenc.c
 
-  Copyright (c) 2010 Duo Security
+  SPDX-License-Identifier: LicenseRef-URLEnc-MIT
+
+  Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
   Copyright (c) 1996 - 2010, Daniel Stenberg, <daniel@haxx.se>.
-  
   All rights reserved.
-  
-  Permission to use, copy, modify, and distribute this software for any purpose
-  with or without fee is hereby granted, provided that the above copyright
-  notice and this permission notice appear in all copies.
-  
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF THIRD PARTY RIGHTS. IN
-  NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-  DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-  OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
-  OR OTHER DEALINGS IN THE SOFTWARE.
-  
-  Except as contained in this notice, the name of a copyright holder shall not
-  be used in advertising or otherwise to promote the sale, use or other dealings
-  in this Software without prior written authorization of the copyright holder.
 */
 
 #include <ctype.h>
@@ -87,40 +72,5 @@ urlenc_encode(const char *string)
 		string++;
 	}
 	ns[strindex] = 0;
-	return (ns);
-}
-
-char *
-urlenc_decode(const char *string, size_t *olen)
-{
-	size_t alloc, strindex=0;
-	char *ns = NULL;
-	unsigned char in;
-	long hex;
-	
-	if (!string) return NULL;
-	alloc = strlen(string) + 1;
-	if ((ns = malloc(alloc)) == NULL)
-		return (NULL);
-	
-	while(--alloc > 0) {
-		in = *string;
-		if (('%' == in) && isxdigit(string[1]) && isxdigit(string[2])) {
-			char hexstr[3]; /* '%XX' */
-			hexstr[0] = string[1];
-			hexstr[1] = string[2];
-			hexstr[2] = 0;
-			hex = strtol(hexstr, NULL, 16);
-			in = (unsigned char)hex; /* hex is always < 256 */
-			string += 2;
-			alloc -= 2;
-		} else if ('+' == in) {
-			in = ' ';
-		}
-		ns[strindex++] = in;
-		string++;
-	}
-	ns[strindex] = 0;
-	if (olen) *olen = strindex;
 	return (ns);
 }

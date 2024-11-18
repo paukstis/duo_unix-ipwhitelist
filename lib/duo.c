@@ -1,8 +1,10 @@
 /*
+ * SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+ *
  * duo.c
  *
- * Copyright (c) 2010 Duo Security
- * All rights reserved, all wrongs reversed.
+ * Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+ * All rights reserved.
  */
 
 #include "config.h"
@@ -341,6 +343,47 @@ _duo_json_response(struct duo_ctx *ctx) {
     return code;
 }
 
+int
+_duo_https_exchange(struct duo_ctx *ctx, const char *method, const char *uri, int msecs, int *code)
+{
+    const int max_int_digits = (241 * sizeof(int) / 100 + 1);
+    const int max_backoff_wait_secs = 32;
+    const int initial_backof_wait_secs = 1;
+    const int backoff_factor = 2;
+
+    static const char fmt[] = "Rate-limiting response received from server. Waiting for %d seconds before retrying.";
+    char msg[(sizeof fmt) + max_int_digits];
+    int wait_secs = initial_backof_wait_secs;
+
+    while (1) {
+        HTTPScode rc;
+        time_t retry_after;
+
+        rc = https_send(ctx->https, method, uri,
+            ctx->argc, ctx->argv, ctx->ikey, ctx->skey, ctx->useragent);
+        if (rc != HTTPS_OK)
+            return rc;
+        rc = https_recv(ctx->https, code, &ctx->body, &ctx->body_len, &retry_after, msecs);
+        if (retry_after != (time_t)-1)
+            wait_secs = retry_after - time(NULL);
+
+        if (rc != HTTPS_OK || *code != 429 || wait_secs > max_backoff_wait_secs)
+            return rc;
+
+        struct timespec timeout = {
+            .tv_sec = wait_secs,
+            .tv_nsec = (float)rand() / RAND_MAX * 1000000000
+        };
+
+        snprintf(msg, sizeof(msg), fmt, timeout.tv_sec);
+        if (ctx->conv_status)
+            ctx->conv_status(NULL, msg);
+        nanosleep(&timeout, NULL);
+        if (retry_after == (time_t)-1)
+            wait_secs *= backoff_factor;
+    }
+}
+
 static duo_code_t
 duo_call(struct duo_ctx *ctx, const char *method, const char *uri, int msecs)
 {
@@ -359,12 +402,8 @@ duo_call(struct duo_ctx *ctx, const char *method, const char *uri, int msecs)
             }
             break;
         }
-        if ((err = https_send(ctx->https, method, uri,
-                    ctx->argc, ctx->argv, ctx->ikey, ctx->skey, ctx->useragent)) == HTTPS_OK &&
-            (err = https_recv(ctx->https, &code,
-                &ctx->body, &ctx->body_len, msecs)) == HTTPS_OK) {
+        if (_duo_https_exchange(ctx, method, uri, msecs, &code) == HTTPS_OK)
             break;
-        }
         https_close(&ctx->https);
     }
     duo_reset(ctx);
@@ -435,10 +474,7 @@ _duo_preauth(struct duo_ctx *ctx, const char *username,
     JSON_Object *response;
     _JSON_FIND_OBJECT(response, json_obj, "response", json);
     _JSON_FIND_STRING(p, response, "result", json);
-    if (p == NULL) {
-        _duo_seterr(ctx, "JSON invalid 'result': %s", p);
-        ret = DUO_SERVER_ERROR;
-    } else if (strcasecmp(p, "auth") != 0) {
+    if (strcasecmp(p, "auth") != 0) {
         char *output;
         _JSON_FIND_STRING(output, response, "status", json);
         if (strcasecmp(p, "allow") == 0) {
@@ -554,6 +590,7 @@ duo_login(struct duo_ctx *ctx, const char *username,
     const char *client_ip, int flags, const char *command, const int failmode)
 {
     duo_code_t ret;
+    int size;
     char buf[256];
     char *pushinfo = NULL;
     char p[256];
@@ -597,13 +634,23 @@ duo_login(struct duo_ctx *ctx, const char *username,
     }
 
     /* Add pushinfo parameters */
-    local_ip = duo_local_ip();
-    if (asprintf(&pushinfo, "Server+IP=%s&Command=%s",
-        local_ip, command ? urlenc_encode(command) : "") < 0 ||
-        duo_add_param(ctx, "pushinfo", pushinfo) != DUO_OK) {
+    char *encoded_command = urlenc_encode(command);
+    if (encoded_command == NULL) {
         return (DUO_LIB_ERROR);
     }
+
+    local_ip = duo_local_ip();
+    size = asprintf(&pushinfo, "Server+IP=%s&Command=%s", local_ip, encoded_command);
+    free(encoded_command);
+    if (size < 0) {
+        return (DUO_LIB_ERROR);
+    }
+
+    ret = duo_add_param(ctx, "pushinfo", pushinfo);
     free(pushinfo);
+    if (ret != DUO_OK) {
+        return (DUO_LIB_ERROR);
+    }
 
     /* Try Duo authentication.  Only use the configured timeout if
      * the call is asynchronous, because async calls should return
@@ -692,8 +739,10 @@ duo_login(struct duo_ctx *ctx, const char *username,
                     result);
                 ret = DUO_SERVER_ERROR;
             }
+            _JSON_VALUE_FREE(json_new);
             break;
         }
+        _JSON_VALUE_FREE(json_new);
     }
     _JSON_VALUE_FREE(json);
     return (ret);

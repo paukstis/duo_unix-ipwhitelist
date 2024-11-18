@@ -1,3 +1,12 @@
+#
+# SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+#
+# Makefile.am
+#
+# Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+# All rights reserved.
+#
+
 TESTS_ENVIRONMENT = env BUILDDIR=$(abs_top_builddir) $(PYTHON)
 
 TESTS = test_login_duo.py test_crypto.py test_duo_split_at.py
@@ -11,6 +20,8 @@ check_LTLIBRARIES += liblogin_duo_preload.la
 liblogin_duo_preload_la_SOURCES = login_duo_preload.c
 liblogin_duo_preload_la_LDFLAGS = -no-undefined -avoid-version -rpath /baz -shared
 
+check_PROGRAMS = sigpipe
+
 if PAM
 TESTS += $(PAM_TESTS)
 
@@ -18,7 +29,7 @@ check_LTLIBRARIES += libtestpam_preload.la
 libtestpam_preload_la_SOURCES = testpam_preload.c
 libtestpam_preload_la_LDFLAGS = -no-undefined -avoid-version -rpath /bar -shared
 
-check_PROGRAMS = testpam
+check_PROGRAMS += testpam
 testpam_LDADD = -lpam
 endif
 

@@ -1,8 +1,10 @@
 /*
+ * SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+ *
  * login_duo.c
  *
- * Copyright (c) 2010 Duo Security
- * All rights reserved, all wrongs reversed.
+ * Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+ * All rights reserved.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -43,6 +45,9 @@ struct login_ctx {
     const char  *host;
     uid_t        uid;
 };
+
+static void
+die(const char *fmt, ...) __attribute__((noreturn));
 
 static void
 die(const char *fmt, ...)
@@ -427,6 +432,8 @@ main(int argc, char *argv[])
     pid_t pid;
     int c, stat;
     pid_t wait_res;
+
+    duo_syslog(LOG_INFO, "starting Duo Unix: Login Duo");
 
     memset(ctx, 0, sizeof(ctx));
 

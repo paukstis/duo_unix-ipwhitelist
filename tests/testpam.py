@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+#
+# SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+#
+# Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+# All rights reserved.
+#
+# testpam.py
+#
 
 import argparse
 import getopt
@@ -36,8 +44,6 @@ class TempPamConfig(object):
             ) from e
 
     def __enter__(self):
-        if sys.platform == "sunos5":
-            self.file.write(PAM_SERVICE.decode("utf8") + b" ")
         self.file.write(self.config.encode("utf-8"))
         self.file.flush()
         return self.file

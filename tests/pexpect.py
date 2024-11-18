@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Pexpect is a Python module for spawning child applications and controlling
 them automatically. Pexpect can be used for automating interactive applications
 such as ssh, ftp, passwd, telnet, etc. It can be used to a automate setup
@@ -29,6 +30,7 @@ For example::
 
 This works even for commands that ask for passwords or other input outside of
 the normal stdio streams.
+
 
 Credits: Noah Spurrier, Richard Holden, Marco Molteni, Kimberley Burchett,
 Robert Stone, Hartmut Goebel, Chad Schroeder, Erick Tryzelaar, Dave Kirby, Ids
@@ -262,18 +264,19 @@ def run(
                 child_result_list.append(child.before + child.after)
             else:  # child.after may have been a TIMEOUT or EOF, so don't cat those.
                 child_result_list.append(child.before)
-            if type(responses[index]) is str:
-                child.send(responses[index])
-            elif isinstance(responses[index], types.FunctionType):
-                callback_result = responses[index](locals())
-                sys.stdout.flush()
-                if type(callback_result) is str:
-                    child.send(callback_result)
-                elif callback_result:
-                    break
-            else:
-                raise TypeError("The callback must be a string or function type.")
-            event_count = event_count + 1
+            if responses is not None:
+                if type(responses[index]) is str:
+                    child.send(responses[index])
+                elif isinstance(responses[index], types.FunctionType):
+                    callback_result = responses[index](locals())
+                    sys.stdout.flush()
+                    if type(callback_result) is str:
+                        child.send(callback_result)
+                    elif callback_result:
+                        break
+                else:
+                    raise TypeError("The callback must be a string or function type.")
+                event_count = event_count + 1
         except TIMEOUT as e:
             child_result_list.append(child.before)
             break
@@ -1226,9 +1229,6 @@ class spawn(object):
             # take care of this situation (unfortunately, this requires waiting through the timeout).
             if pid == 0:
                 return True
-
-        if pid == 0:
-            return True
 
         if os.WIFEXITED(status):
             self.status = status

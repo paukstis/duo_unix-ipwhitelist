@@ -1,12 +1,15 @@
 /*
+ * SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+ *
  * https.c
  *
- * Copyright (c) 2011 Duo Security
- * All rights reserved, all wrongs reversed.
+ * Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+ * All rights reserved.
  */
 
 #include "config.h"
 
+#include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -54,6 +57,13 @@ struct https_ctx {
 
 struct https_ctx ctx;
 
+typedef enum
+{
+	CB_NONE = 0, /* First callback*/
+	CB_KEY,      /* Last was key */
+	CB_VAL       /* Last was value */
+} callback_status_t;
+
 struct https_request {
     BIO *cbio;
     BIO *body;
@@ -64,6 +74,17 @@ struct https_request {
 
     http_parser *parser;
     int done;
+
+    int sigpipe_ignored;
+    struct sigaction old_sigpipe;
+
+    time_t retry_after;
+
+    char *value;
+    size_t value_size;
+    char* key; /* current header name */
+    size_t key_size; /* size of header name */
+    callback_status_t last_cb;
 };
 
 static int
@@ -74,13 +95,90 @@ __on_body(http_parser *p, const char *buf, size_t len)
     return (BIO_write(req->body, buf, len) != len);
 }
 
+time_t
+_parse_retry_after(const char *header_value)
+{
+    if (header_value == NULL) {
+        return (time_t)-1;
+    }
+
+    /* Try to parse as an integer (delay in seconds) */
+    char *endptr;
+    long delay_seconds = strtol(header_value, &endptr, 10);
+    if (*endptr == '\0') {
+        return time(NULL) + delay_seconds;
+    }
+
+    /* Try to parse as a date */
+    struct tm tm;
+    memset(&tm, 0, sizeof(struct tm));
+    if (strptime(header_value, "%a, %d %b %Y %H:%M:%S %Z", &tm) != NULL) {
+        return mktime(&tm);
+    }
+
+    return (time_t)-1;
+}
+
 static int
 __on_message_complete(http_parser *p)
 {
     struct https_request *req = (struct https_request *)p->data;
 
+    req->retry_after = _parse_retry_after(req->value);
+
+    free(req->value);
+    req->value = NULL;
+    req->value_size = 0;
+    free(req->key);
+    req->key = NULL;
+    req->key_size = 0;
+    req->last_cb = CB_NONE;
+
     req->done = 1;
     return (0);
+}
+
+static const char retry_after_header[] = "Retry-After";
+static const char x_retry_after_header[] = "X-Retry-After";
+
+static int
+__on_header_field(http_parser* p, const char* at, size_t length)
+{
+    struct https_request *client = p->data;
+
+    if (client->last_cb == CB_VAL)
+        client->key_size = 0;
+
+    client->key = realloc(client->key, client->key_size + length + 1);
+    memcpy(client->key + client->key_size, at, length);
+    client->key_size += length;
+    client->key[client->key_size] = 0;
+
+	client->last_cb = CB_KEY;
+
+	return 0;
+}
+
+static int
+__on_header_value(http_parser* p, const char* at, size_t length)
+{
+    struct https_request *client = p->data;
+
+    if (strcasecmp(client->key, retry_after_header) == 0
+        || strcasecmp(client->key, x_retry_after_header) == 0)
+    {
+        if (client->last_cb != CB_VAL)
+            client->value_size = 0;
+
+        client->value = realloc(client->value, client->value_size + length + 1);
+        memcpy(client->value + client->value_size, at, length);
+        client->value_size += length;
+        client->value[client->value_size] = 0;
+    }
+
+	client->last_cb = CB_VAL;
+
+	return 0;
 }
 
 static const char *
@@ -104,26 +202,47 @@ _SSL_check_server_cert(SSL *ssl, const char *hostname)
 {
     X509 *cert;
     X509_NAME *subject;
-    const GENERAL_NAME *altname;
     STACK_OF(GENERAL_NAME) *altnames;
     ASN1_STRING *tmp;
     int i, n, match = -1;
-    const char *p;
+    struct in6_addr addr;
+    int hostnametype = GEN_DNS;
+    size_t addrsize;
+
     if (SSL_get_verify_mode(ssl) == SSL_VERIFY_NONE ||
         (cert = SSL_get_peer_certificate(ssl)) == NULL) {
         return (1);
     }
+
+    /* Check if hostname is an IP address */
+    if (inet_pton(AF_INET6, hostname, &addr) == 1) {
+        hostnametype = GEN_IPADD;
+        addrsize = sizeof(struct in6_addr);
+    } else if (inet_pton(AF_INET, hostname, &addr) == 1) {
+        hostnametype = GEN_IPADD;
+        addrsize = sizeof(struct in_addr);
+    }
+
     /* Check subjectAltName */
     if ((altnames = X509_get_ext_d2i(cert, NID_subject_alt_name,
                 NULL, NULL)) != NULL) {
         n = sk_GENERAL_NAME_num(altnames);
 
         for (i = 0; i < n && match != 1; i++) {
-            altname = sk_GENERAL_NAME_value(altnames, i);
-            p = (char *)ASN1_STRING_data(altname->d.ia5);
-            if (altname->type == GEN_DNS) {
-                match = (ASN1_STRING_length(altname->d.ia5) ==
-                    strlen(p) && match_pattern(hostname, p));
+            const GENERAL_NAME *altname = sk_GENERAL_NAME_value(altnames, i);
+            if (hostnametype == altname->type) {
+                char *altptr = (char *)ASN1_STRING_data(altname->d.ia5);
+                size_t altsize = (size_t)ASN1_STRING_length(altname->d.ia5);
+
+                if (altname->type == GEN_DNS) {
+                    match = (altsize == strlen(altptr) && match_pattern(hostname, altptr));
+                } else if (altname->type == GEN_IPADD) {
+                    if ((altsize == addrsize) && !memcpy(altptr, &addr, altsize)) {
+                        match = 1;
+                    } else {
+                        match = 0;
+                    }
+                }
             }
         }
         GENERAL_NAMES_free(altnames);
@@ -139,9 +258,15 @@ _SSL_check_server_cert(SSL *ssl, const char *hostname)
             if ((tmp = X509_NAME_ENTRY_get_data(
                        X509_NAME_get_entry(subject, i))) != NULL &&
                 ASN1_STRING_type(tmp) == V_ASN1_UTF8STRING) {
-                p = (char *)ASN1_STRING_data(tmp);
-                match = (ASN1_STRING_length(tmp) ==
-                    strlen(p) && match_pattern(hostname, p));
+                const char *pattern = (char *)ASN1_STRING_data(tmp);
+                size_t patternsize = (size_t)ASN1_STRING_length(tmp);
+                if (patternsize == strlen(pattern)) {
+                    if (!strchr(pattern, '*')) {
+                        match = strcasecmp(hostname, pattern) == 0;
+                    } else if (hostnametype == GEN_DNS) {
+                        match = match_pattern(hostname, pattern);
+                    }
+                }
             }
         }
     }
@@ -309,23 +434,29 @@ _establish_connection(struct https_request * const req,
         if (connected_socket == -1) {
             continue;
         }
-        sock_flags = fcntl(connected_socket, F_GETFL, 0);
-        fcntl(connected_socket, F_SETFL, sock_flags|O_NONBLOCK);
-
-        if (connect(connected_socket, cur_res->ai_addr, cur_res->ai_addrlen) != 0 &&
-                errno != EINPROGRESS) {
-            close(connected_socket);
-            connected_socket = -1;
-            continue;
+        if ((sock_flags = fcntl(connected_socket, F_GETFL, 0)) == -1) {
+            goto fail;
         }
+
+        if (fcntl(connected_socket, F_SETFL, sock_flags|O_NONBLOCK) == -1) {
+            goto fail;
+        }
+
+        if (connect(connected_socket, cur_res->ai_addr, cur_res->ai_addrlen) != 0
+                && errno != EINPROGRESS) {
+            goto fail;
+        }
+
         socket_error = _fd_wait(connected_socket, 10000);
         if (socket_error != 1) {
-            close(connected_socket);
-            connected_socket = -1;
-            continue;
+            goto fail;
         }
+
         /* Connected! */
         break;
+    fail:
+        close(connected_socket);
+        connected_socket = -1;
     }
     cur_res = NULL;
     freeaddrinfo(res);
@@ -465,8 +596,8 @@ https_init(const char *cafile, const char *http_proxy)
     /* Set HTTP parser callbacks */
     ctx.parse_settings.on_body = __on_body;
     ctx.parse_settings.on_message_complete = __on_message_complete;
-
-    signal(SIGPIPE, SIG_IGN);
+    ctx.parse_settings.on_header_field = __on_header_field;
+    ctx.parse_settings.on_header_value = __on_header_value;
 
     return (0);
 }
@@ -479,6 +610,7 @@ https_open(struct https_request **reqp, const char *host, const char *useragent)
     char *p;
     int n;
     int connection_error = 0;
+    struct sigaction sigpipe;
 
     const char *api_host;
     const char *api_port;
@@ -491,6 +623,13 @@ https_open(struct https_request **reqp, const char *host, const char *useragent)
         https_close(&req);
         return (HTTPS_ERR_SYSTEM);
     }
+
+    memset(&sigpipe, 0, sizeof(sigpipe));
+    sigpipe.sa_handler = SIG_IGN;
+    if (sigaction(SIGPIPE, &sigpipe, &req->old_sigpipe) == 0) {
+      req->sigpipe_ignored = 1;
+    }
+
     if ((p = strchr(req->host, ':')) != NULL) {
         *p = '\0';
         req->port = p + 1;
@@ -648,15 +787,19 @@ https_send(struct https_request *req, const char *method, const char *uri,
 {
     BIO *b64;
     HMAC_CTX *hmac;
-    unsigned char MD[SHA_DIGEST_LENGTH];
-    char *qs, *p;
+    unsigned char MD[SHA512_DIGEST_LENGTH];
+    char *qs, *p, date[128];
     int i, n, is_get;
+    time_t t;
 
     req->done = 0;
 
+    t = time(NULL);
+    strftime(date, sizeof date, "%a, %d %b %Y %T %z", localtime(&t));
+
     /* Generate query string and canonical request to sign */
     if ((qs = _argv_to_qs(argc, argv)) == NULL ||
-        (asprintf(&p, "%s\n%s\n%s\n%s", method, req->host, uri, qs)) < 0) {
+        (asprintf(&p, "%s\n%s\n%s\n%s\n%s", date, method, req->host, uri, qs)) < 0) {
         free(qs);
         ctx.errstr = strerror(errno);
         return (HTTPS_ERR_LIB);
@@ -677,6 +820,7 @@ https_send(struct https_request *req, const char *method, const char *uri,
                "User-Agent: %s\r\n",
                useragent);
     /* Add signature */
+    BIO_printf(req->cbio, "X-Duo-Date: %s\r\n", date);
     BIO_puts(req->cbio, "Authorization: Basic ");
 
     if ((hmac = HMAC_CTX_new()) == NULL) {
@@ -685,7 +829,7 @@ https_send(struct https_request *req, const char *method, const char *uri,
         ctx.errstr = strerror(errno);
         return (HTTPS_ERR_LIB);
     }
-    HMAC_Init(hmac, skey, strlen(skey), EVP_sha1());
+    HMAC_Init(hmac, skey, strlen(skey), EVP_sha512());
     HMAC_Update(hmac, (unsigned char *)p, strlen(p));
     HMAC_Final(hmac, MD, NULL);
     HMAC_CTX_free(hmac);
@@ -724,7 +868,7 @@ https_send(struct https_request *req, const char *method, const char *uri,
 
 HTTPScode
 https_recv(struct https_request *req, int *code, const char **body, int *len,
-        int msecs)
+        time_t *retry_after, int msecs)
 {
     int n, err;
 
@@ -749,6 +893,8 @@ https_recv(struct https_request *req, int *code, const char **body, int *len,
     }
     *len = BIO_get_mem_data(req->body, (char **)body);
     *code = req->parser->status_code;
+    if (retry_after)
+        *retry_after = req->retry_after;
 
     return (HTTPS_OK);
 }
@@ -772,6 +918,9 @@ https_close(struct https_request **reqp)
         }
         if (req->cbio != NULL) {
             BIO_free_all(req->cbio);
+        }
+        if (req->sigpipe_ignored) {
+          sigaction(SIGPIPE, &req->old_sigpipe, NULL);
         }
         free(req->parser);
         free(req->host);

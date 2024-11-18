@@ -1,13 +1,15 @@
 #
-# Copyright 2013 Duo Security
-# All rights reserved, all wrongs reversed
+# SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+#
+# Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+# All rights reserved.
 
 # Minimum autoconf version
 AC_PREREQ(2.65)
 
 # Package, version, bug report address
 AC_INIT([duo_unix],
-	[1.12.1],
+	[2.0.4],
 	[support@duosecurity.com])
 
 # Tells autoconf where to find necessary build scripts and macros.
@@ -22,9 +24,9 @@ AB_INIT
 # Init header
 AC_CONFIG_HEADER(config.h)
 
-# Default sysconfdir to /etc/duo
-test "$sysconfdir" = '${prefix}/etc' && sysconfdir=/etc/duo
-AC_DEFINE_DIR([DUO_CONF_DIR], [sysconfdir], [Configuration directory])
+# Default sysconfdir to /etc
+test "$sysconfdir" = '${prefix}/etc' && sysconfdir=/etc
+AC_DEFINE_DIR([DUO_CONF_DIR], [sysconfdir/duo], [Configuration directory])
 
 # Determine platform
 AC_CANONICAL_HOST
@@ -38,6 +40,36 @@ AC_USE_SYSTEM_EXTENSIONS
 AC_PROG_INSTALL
 AC_PROG_MKDIR_P
 LT_INIT
+
+AC_MSG_NOTICE(checking if we can establish a build date)
+AC_PATH_TOOL(GIT,[git])
+AS_IF([test x"$GIT" != x], [
+    AC_MSG_CHECKING(are we configuring inside a git repository)
+    $GIT rev-parse 2>/dev/null
+    is_git_repo=$?
+    AS_IF([test $is_git_repo == 0], [
+       AC_MSG_RESULT(yes)
+       AC_MSG_CHECKING(is the current working tree clean)
+       $GIT update-index --really-refresh
+       $GIT diff-index --quiet HEAD
+       AS_IF([test $? == 0],
+           [
+               AC_MSG_RESULT(yes)
+               source_date_epoch=`$GIT show -s --format=%ct`
+               AC_MSG_NOTICE(setting build-date to $source_date_epoch)
+               echo "$source_date_epoch" > build-date
+           ],
+           [
+               AC_MSG_RESULT(no current working tree is dirty)
+               AC_MSG_NOTICE(removing build-date)
+               rm -f build-date
+           ]
+       )
+    ],
+    [
+       AC_MSG_RESULT(no)
+    ])
+])
 
 # Set third party library versions
 unity_version=Unity-2.5.2
@@ -60,7 +92,8 @@ case "$host_os" in
         ;;
     *aix*)
         AC_MSG_NOTICE([-fstack-protector disabled on AIX])
-        CFLAGS="$CFLAGS -Wl,-lm"
+        AC_MSG_NOTICE([Compiler optimizations disabled on AIX])
+        CFLAGS="$CFLAGS -O0 -Wl,-lm"
         has_stack_protector=no
         IS_AIX=yes
         ;;
@@ -122,6 +155,20 @@ AS_IF([test "x$with_coverage" != "xno"], [
    CFLAGS="$CFLAGS -O0 --coverage"
    LFLAGS="$LFLAGS -lgcov --coverage"
    AC_MSG_NOTICE([--coverage enabled in CFLAGS])
+])
+
+AC_ARG_WITH(debug,
+  AS_HELP_STRING([--with-debug=DBG],[build with debug info]),
+  [],
+  [ with_debug=no ]
+)
+AM_CONDITIONAL([DEBUG], [ test "x$with_debug" != "xno" ])
+AS_IF([test "x$with_debug" != "xno"], [
+   CFLAGS="$CFLAGS -g2"
+   AC_MSG_NOTICE([debugging enabled in CFLAGS])
+])
+AS_IF([test "x$with_debug" == "xno"], [
+   CFLAGS="$CFLAGS -g0"
 ])
 
 # Check PAM

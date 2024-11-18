@@ -1,4 +1,13 @@
 #!/usr/bin/env bash
+#
+# SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+#
+# duo_unix_support.sh
+#
+# Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+# All rights reserved.
+#
+
 
 # Users can have login_duo installed in different locations by defining a --prefix flag at compile time
 PREFIX="/usr"
@@ -103,6 +112,14 @@ else
     echo "Could not find version of Duo Unix (login_duo was not found)" > configuration.txt
 fi
 
+if [ "$OS" = "solaris" ]; then
+    if type ggrep &>/dev/null; then
+        GREP=ggrep
+    fi
+else
+    GREP=grep
+fi
+
 echo "operating_system=${OS}" >> configuration.txt
 echo "version=${VER}" >> configuration.txt
 echo "kernel=${KERNEL}" >> configuration.txt
@@ -110,13 +127,13 @@ echo "openssl_version=${OPENSSL_VER}" >> configuration.txt
 echo "ssh=$(ssh -V 2>&1)" &>> configuration.txt
 echo -e "\nGathering logs and pam configs"
 # Check if the user has gcc and make
-if type gcc >/dev/null; then
+if type gcc &>/dev/null; then
    GCC_VER=$(gcc --version)
-   echo "gcc=$GCC_VER" | grep "gcc" >> configuration.txt
+   echo "gcc=$GCC_VER" | $GREP "gcc" >> configuration.txt
 fi
-if type make >/dev/null; then
+if type make &>/dev/null; then
    MAKE_VER=$(make --version)
-   echo "make=$MAKE_VER" | grep "make" >> configuration.txt
+   echo "make=$MAKE_VER" | $GREP "make" >> configuration.txt
 fi
 
 # Copy over common configurations and scrub the skey from the configs
@@ -151,18 +168,29 @@ check_and_cp () {
 
 #Different Unix systesm utilize different files, it is alright if not all are gathered.
 COPY_FILES=(
+           "/etc/pam.conf"
+           "/etc/pam.d/common-auth"
+           "/etc/pam.d/other"
+           "/etc/pam.d/passwd"
+           "/etc/pam.d/password-auth"
            "/etc/pam.d/sshd"
            "/etc/pam.d/sudo"
-           "/etc/pam.d/common-auth"
-           "/etc/pam.d/passwd"
+           "/etc/pam.d/sudo-i"
            "/etc/pam.d/system-auth"
-           "/etc/pam.d/password-auth"
+           "/etc/pam_debug"
+           "/etc/security/login.cfg"
            "/etc/ssh/sshd_config"
+           "/var/log/auth.log"
            "/var/log/messages"
            "/var/log/secure"
-           "/var/log/auth.log"
            "/var/log/syslog"
+           "/var/adm/messages"
+           "/var/adm/messages.0"
 )
+
+PAM_DUO_FILES=$($GREP -ilr "pam_duo.so" "/etc/pam.d")
+# There might be duplicates but that's fine
+COPY_FILES+=(${PAM_DUO_FILES[@]})
 
 for path in "${COPY_FILES[@]}"
 do

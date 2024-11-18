@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
+#
+# SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+#
+# Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+# All rights reserved.
+#
+# mockduo.py
+#
 
 import cgi
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 try:
-    from hashlib import sha1
+    from hashlib import sha512
 except ImportError:
-    import sha as sha1
+    import sha as sha512
 
 import base64
 import hmac
@@ -50,6 +58,11 @@ class MockDuoHandler(BaseHTTPRequestHandler):
     server_version = "MockDuo/1.0"
     protocol_version = "HTTP/1.1"
 
+    def __init__(self, *args, **kwargs):
+        self._rl_req_clock = 0
+        self._rl_req_num = 0
+        super().__init__(*args, **kwargs)
+
     def _verify_sig(self):
         authz = base64.b64decode(self.headers["Authorization"].split()[1]).decode(
             "utf-8"
@@ -58,7 +71,13 @@ class MockDuoHandler(BaseHTTPRequestHandler):
         if ikey != IKEY:
             return False
 
-        canon = [self.method, self.headers["Host"].split(":")[0].lower(), self.path]
+        # first look for x-duo-date header
+        datestring = self.headers.get("x-duo-date")
+        if datestring is None:
+            # if it doesn't exist, try looking for Date header
+            datestring = self.headers.get("Date")
+        
+        canon = [datestring, self.method, self.headers["Host"].split(":")[0].lower(), self.path]
         l = []
         for k in sorted(self.args.keys()):
             l.append(
@@ -67,7 +86,7 @@ class MockDuoHandler(BaseHTTPRequestHandler):
                 )
             )
         canon.append("&".join(l))
-        h = hmac.new(SKEY, ("\n".join(canon)).encode("utf8"), digestmod="sha1")
+        h = hmac.new(SKEY, ("\n".join(canon)).encode("utf8"), digestmod="sha512")
 
         return sig == h.hexdigest()
 
@@ -105,9 +124,12 @@ class MockDuoHandler(BaseHTTPRequestHandler):
         time.sleep(int(secs))
         return rsp
 
-    def _send(self, code, buf=b""):
+    def _send(self, code, buf=b"", headers=None):
         self.send_response(code)
         self.send_header("Content-length", str(len(buf)))
+        if headers:
+            for key, value in headers.items():
+                self.send_header(key, value)
         if buf:
             self.send_header("Content-type", "application/json")
             self.end_headers()
@@ -216,6 +238,30 @@ class MockDuoHandler(BaseHTTPRequestHandler):
                 ret["response"] = {"result": "enroll", "status": "please enroll"}
             elif self.args["user"] == "bad-json":
                 buf = b""
+            elif self.args["user"] == "retry-after-3-preauth-allow":
+                if self._rl_req_num == 0:
+                    self._rl_req_num = 1
+                    return self._send(429, headers={"X-Retry-After": "3"})
+                else:
+                    self._rl_req_num = 0
+                    ret["response"] = {"result": "allow", "status": "preauth-allowed"}
+            elif self.args["user"] == "retry-after-date-preauth-allow":
+                if self._rl_req_num == 0:
+                    self._rl_req_num = 1
+                    timestr = time.strftime("%a, %d %b %Y %H:%M:%S %Z", time.localtime(time.time()+3))
+                    return self._send(429, headers={"Retry-After": timestr})
+                else:
+                    self._rl_req_num = 0
+                    ret["response"] = {"result": "allow", "status": "preauth-allowed"}
+            elif self.args["user"] == "rate-limited-preauth-allow":
+                if self._rl_req_num in [0,1]:
+                    self._rl_req_num += 1
+                    return self._send(429)
+                elif self._rl_req_num == 2:
+                    self._rl_req_num = 0
+                    ret["response"] = {"result": "allow", "status": "preauth-allowed"}
+                else:
+                    return self._send(500, "Wrong timeout")
             else:
                 ret["response"] = {
                     "result": "auth",
@@ -256,10 +302,12 @@ class MockDuoHandler(BaseHTTPRequestHandler):
 
         return self._send(200, buf)
 
+class HTTPServerV6(HTTPServer):
+    address_family = socket.AF_INET6
 
 def main():
     port = 4443
-    host = "localhost"
+    host = "::"
     if len(sys.argv) == 1:
         cafile = os.path.realpath(
             "{0}/certs/mockduo.pem".format(os.path.dirname(__file__))
@@ -270,9 +318,11 @@ def main():
         print("Usage: {0} [certfile]\n".format(sys.argv[0]), file=sys.stderr)
         sys.exit(1)
 
-    httpd = HTTPServer((host, port), MockDuoHandler)
+    httpd = HTTPServerV6((host, port), MockDuoHandler)
 
-    httpd.socket = ssl.wrap_socket(httpd.socket, certfile=cafile, server_side=True)
+    ctx = ssl.SSLContext(protocol=ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(cafile)
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
 
     httpd.serve_forever()
 

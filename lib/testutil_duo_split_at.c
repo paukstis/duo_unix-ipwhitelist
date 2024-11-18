@@ -1,3 +1,12 @@
+/*
+ * SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+ *
+ * testutil_duo_split_at.c
+ *
+ * Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+ * All rights reserved.
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -19,7 +28,7 @@ int failure()
 int main (int argc, char *argv[])
 {
     if (argc != 5) {
-        printf("Format: %s <string|NULL> <delimiter> <position> <expected|NULL>\n", argv[0]);
+        printf("Format: %s <string> <delimiter> <position> <expected|NULL>\n", argv[0]);
         return EXIT_FAILURE;
     }
 
@@ -27,10 +36,6 @@ int main (int argc, char *argv[])
     char *delimiter = argv[2];
     int position = atoi(argv[3]);
     char *expected = argv[4];
-
-    if (strcmp(s, "NULL") == 0) {
-        s = NULL;
-    }
 
     char *result = duo_split_at(s, *delimiter, position);
 

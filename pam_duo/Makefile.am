@@ -1,3 +1,12 @@
+#
+# SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+#
+# Makefile.am
+#
+# Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+# All rights reserved.
+#
+
 
 AM_CPPFLAGS = -I$(top_srcdir)/compat -I$(top_srcdir)/lib @OPENSSL_INCLUDES@
 SOURCES = pam_duo.c pam_extra.h pam_extra.c pam_duo_private.c pam_duo_private.h
@@ -41,15 +50,15 @@ clean-local-semodule:
 
 
 install-data-local:
-	$(MKDIR_P) $(DESTDIR)$(sysconfdir)
-	-@if [ ! -f $(DESTDIR)$(sysconfdir)/pam_duo.conf ]; then \
-		cp pam_duo.conf $(DESTDIR)$(sysconfdir)/pam_duo.conf; \
-		echo "Created ${DESTDIR}$(sysconfdir)/pam_duo.conf"; \
+	$(MKDIR_P) $(DESTDIR)$(sysconfdir)/duo
+	-@if [ ! -f $(DESTDIR)$(sysconfdir)/duo/pam_duo.conf ]; then \
+		cp pam_duo.conf $(DESTDIR)$(sysconfdir)/duo/pam_duo.conf; \
+		echo "Created ${DESTDIR}$(sysconfdir)/duo/pam_duo.conf"; \
 		echo "Please edit it to add your Duo integration and secret keys"; \
 	else \
-		echo "Found existing ${DESTDIR}$(sysconfdir)/pam_duo.conf - updating permissions"; \
+		echo "Found existing ${DESTDIR}$(sysconfdir)/duo/pam_duo.conf - updating permissions"; \
 	fi
-	-chmod 600 $(DESTDIR)$(sysconfdir)/pam_duo.conf
+	-chmod 600 $(DESTDIR)$(sysconfdir)/duo/pam_duo.conf
 	-@if test "x$(IS_AIX)" = "xyes"; then \
 		rm -f $(PAMDIR)/pam_duo.so; \
 		ar x $(top_builddir)/pam_duo/.libs/pam_duo.a $(PAMDIR)/pam_duo.so; \

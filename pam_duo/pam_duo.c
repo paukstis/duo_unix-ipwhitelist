@@ -1,10 +1,13 @@
 /*
+ * SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+ *
  * pam_duo.c
  *
- * Copyright (c) 2010 Duo Security
- * All rights reserved, all wrongs reversed.
+ * Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+ * All rights reserved.
  */
 
+#include <sys/syslog.h>
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -124,6 +127,7 @@ pam_sm_authenticate(pam_handle_t *pamh, int pam_flags,
 
     int i, flags, pam_err, matched;
 
+    duo_syslog(LOG_INFO, "starting Duo Unix: PAM Duo");
     duo_config_default(&cfg);
 
     /* Parse configuration */
@@ -198,12 +202,15 @@ pam_sm_authenticate(pam_handle_t *pamh, int pam_flags,
     } else if (strcmp(service, "sudo") == 0) {
         cmd = getenv("SUDO_COMMAND");
     } else if (strcmp(service, "su") == 0 || strcmp(service, "su-l") == 0) {
-        /* Check calling user for Duo auth, just like sudo */
-        if ((pw = getpwuid(getuid())) == NULL) {
-            close_config(&cfg);
-            return (PAM_USER_UNKNOWN);
+        /* Check if target user is "root" */
+        if(pw->pw_uid == 0) {
+            /* If so, check calling user for Duo auth, just like sudo */
+            if ((pw = getpwuid(getuid())) == NULL) {
+                close_config(&cfg);
+                return (PAM_USER_UNKNOWN);
+            }
+            user = pw->pw_name;
         }
-        user = pw->pw_name;
     }
     /* Check group membership */
     matched = duo_check_groups(pw, cfg.groups, cfg.groups_cnt);

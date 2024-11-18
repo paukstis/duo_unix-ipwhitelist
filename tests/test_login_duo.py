@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+#
+# SPDX-License-Identifier: GPL-2.0-with-classpath-exception
+#
+# Copyright (c) 2023 Cisco Systems, Inc. and/or its affiliates
+# All rights reserved.
+#
+# test_login_duo.py
+#
+
 import os
 import subprocess
 import sys
@@ -7,7 +16,7 @@ import unittest
 from tempfile import NamedTemporaryFile
 
 import pexpect
-from common_suites import NORMAL_CERT, CommonSuites, fips_available
+from common_suites import NORMAL_CERT, CommonSuites, fips_available, EOF
 from config import (
     MOCKDUO_ADMINS_NO_USERS,
     MOCKDUO_AUTOPUSH,
@@ -29,10 +38,11 @@ from config import (
     TempConfig,
 )
 from mockduo_context import MockDuo
-from paths import topbuilddir
+from paths import build, topbuilddir
 
 BUILDDIR = topbuilddir
 TESTDIR = os.path.realpath(os.path.dirname(__file__))
+sigpipe_path = os.path.join(BUILDDIR, "tests", "sigpipe")
 
 
 class LoginDuoTimeoutException(Exception):
@@ -199,6 +209,7 @@ class TestLoginBSON(CommonSuites.InvalidBSON):
 
 
 class TestLoginDuoConfig(unittest.TestCase):
+    @unittest.skipIf(sys.platform == "sunos5", "Solaris ignores empty quotes in argument. Probably a difference in the getopt call")
     def test_empty_args(self):
         """Test to see how login_duo handles an empty string argument (we do need a valid argument also)"""
         result = login_duo(["", "-h"])
@@ -226,7 +237,7 @@ class TestLoginDuoConfig(unittest.TestCase):
     def test_version_output(self):
         """Check version output"""
         result = login_duo(["-v"])
-        self.assertRegex(result["stderr"][0], "login_duo \d+\.\d+.\d+")
+        self.assertRegex(result["stderr"][0], "login_duo \\d+\\.\\d+.\\d+")
 
 
 class TestLoginDuoEnv(CommonSuites.Env):
@@ -384,9 +395,16 @@ class TestLoginDuoShell(unittest.TestCase):
     def test_default_shell(self):
         """Test that we fallback to /bin/sh if there is no shell specified for the user"""
         with TempConfig(MOCKDUO_AUTOPUSH) as temp:
+            env = {
+                "UID": "1015"
+            }
+            if sys.platform != "sunos5":
+                # Solaris doesn't like it when you mess with the PS1
+                env["PS1"] = "$"
+
             process = login_duo_interactive(
                 ["-d", "-c", temp.name],
-                env={"PS1": "$ ", "UID": "1015"},
+                env=env,
                 preload_script=os.path.join(TESTDIR, "login_duo.py"),
             )
             # this double escaping is needed to check for a literal "$"
@@ -676,7 +694,7 @@ class TestMOTD(unittest.TestCase):
                     preload_script=os.path.join(TESTDIR, "login_duo.py"),
                 )
                 process.sendline(b"1")
-            self.assertEqual(process.expect([test_motd, pexpect.EOF], timeout=5), 1)
+            self.assertEqual(process.expect([test_motd, EOF], timeout=5), 1)
 
     def test_motd_users_bypass(self):
         bypass_config = DuoUnixConfig(
@@ -701,6 +719,33 @@ class TestMOTD(unittest.TestCase):
                 process.sendline(b"1")
                 self.assertEqual(process.expect(test_motd, timeout=10), 0)
                 self.assertEqual(process.expect("SUCCESS", timeout=10), 0)
+
+
+class TestSigpipe(unittest.TestCase):
+    def run(self, result=None):
+        with MockDuo(NORMAL_CERT):
+            return super(TestSigpipe, self).run(result)
+
+    def test_sigpipe(self):
+        with TempConfig(MOCKDUO_CONF) as temp:
+            self.assertEqual(
+                b"Success!\n",
+                subprocess.check_output(
+                    [
+                        sigpipe_path,
+                        "run",
+                        os.path.join(BUILDDIR, "login_duo", "login_duo"),
+                        "-d",
+                        "-c",
+                        temp.name,
+                        "-f",
+                        "preauth-allow",
+                        sigpipe_path,
+                        "test",
+                    ],
+                    cwd=TESTDIR,
+                ),
+            )
 
 
 if __name__ == "__main__":
